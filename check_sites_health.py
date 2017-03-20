@@ -1,11 +1,18 @@
 import os
 import datetime
 import argparse
+import urllib.parse
 import requests
 import whois
 
 
 ONE_MONTH = datetime.timedelta(days=30)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("filepath", help="Путь до файла с url")
+    return parser.parse_args()
 
 
 def load_text_file(path):
@@ -23,13 +30,11 @@ def is_server_respond_with_200(url):
     return request.status_code == 200
 
 
-def get_domain_expiration_date(url):
-    if "https://www." in url:
-        domain_name = url.replace("https://www.", "")
-    elif "http://www." in url:
-        domain_name = url.replace("http://www.", "")
-    else:
-        domain_name = url
+def parse_domain_name(url):
+    return urllib.parse.urlparse(url).netloc[4:]
+
+
+def get_domain_expiration_date(domain_name):
     request = whois.whois(domain_name)
     if type(request.expiration_date) is list:
         return request.expiration_date[0]
@@ -37,32 +42,34 @@ def get_domain_expiration_date(url):
 
 
 def is_domain_expiration_date_ok(exp_date, today, timedelta):
-    return (exp_date - timedelta) >= today
-
-
-def parse_criteria(expiration_status, response_status):
-    if expiration_status and response_status:
-        return "Ok!"
+    if exp_date is not None:
+        return (exp_date - timedelta) >= today
     else:
-        return "NOT Ok! attention is required!"
+        return False
+
+
+def print_results(urls):
+    today = datetime.datetime.today()
+    for url in urls:
+        domain_name = parse_domain_name(url)
+        response_status = is_server_respond_with_200(url)
+        expiration_status = is_domain_expiration_date_ok(
+                                    get_domain_expiration_date(domain_name),
+                                    today,
+                                    ONE_MONTH)
+        print("Статус {} : ответ от сервера - {response}, "
+                "оплачен на месяц - "
+                "{expires}".format(url,
+                            response="Ok" if response_status else "Not Ok",
+                            expires="Ok" if expiration_status else "Not Ok"))
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument("filepath", help="Путь до файла с url")
-    args = parser.parse_args()
+    args = parse_args()
     file_with_urls = load_text_file(args.filepath)
     if file_with_urls is not None:
         today = datetime.datetime.today()
         urls = load_urls(file_with_urls)
-        for url in urls:
-            expiration_status = is_domain_expiration_date_ok(
-                                            get_domain_expiration_date(url),
-                                            today,
-                                            ONE_MONTH)
-            response_status = is_server_respond_with_200(url)
-            print("{} статус - {}".format(url, parse_criteria(
-                                                            expiration_status,
-                                                            response_status)))
+        print_results(urls)
     else:
         print("Неккоректный путь до файла")
